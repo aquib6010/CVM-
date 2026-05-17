@@ -4,6 +4,7 @@
  * and renders the cursor overlay for multiplayer.
  */
 import React, { useRef, useEffect, useCallback } from 'react';
+import Matter from 'matter-js';
 import { usePhysicsEngine } from '@/hooks/usePhysicsEngine';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useLabStore } from '@/stores/useLabStore';
@@ -30,6 +31,7 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
     engineRef,
     addBody,
     removeBody,
+    addConstraint,
     play,
     pause,
     reset,
@@ -56,11 +58,32 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
     isPlaying,
     isConnected,
     roomUsers,
+    constraintSourceId,
+    setConstraintSourceId,
   } = useLabStore();
 
   const { frames, latestFrame } = useAnalytics(engineRef, trackedBodyId);
 
-  // Handle canvas click to add bodies
+  // Find which body was clicked (hit-test against all engine bodies)
+  const findBodyAtPoint = useCallback(
+    (x: number, y: number): string | null => {
+      const engine = engineRef.current;
+      if (!engine) return null;
+      const allBodies = engine.getAllBodies();
+      for (const [id, body] of allBodies) {
+        if (Matter.Bounds.contains(body.bounds, { x, y })) {
+          // More precise check with vertices
+          if (Matter.Vertices.contains(body.vertices, { x, y })) {
+            return id;
+          }
+        }
+      }
+      return null;
+    },
+    [engineRef]
+  );
+
+  // Handle canvas click to add bodies or create constraints
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
       const container = containerRef.current;
@@ -80,13 +103,45 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
           setTrackedBodyId(id);
           onBodyAdded?.(id, activeTool as BodyType, { x, y });
         }
+      } else if (constraintTools.includes(activeTool as ConstraintType)) {
+        // Two-click flow: first click = source body, second click = target body
+        const clickedBodyId = findBodyAtPoint(x, y);
+
+        if (!clickedBodyId) {
+          // Clicked empty space — if we had a source, cancel it
+          if (constraintSourceId) {
+            setConstraintSourceId(null);
+          }
+          return;
+        }
+
+        if (!constraintSourceId) {
+          // First click — set source body
+          setConstraintSourceId(clickedBodyId);
+          setSelectedBodyId(clickedBodyId);
+        } else {
+          // Second click — create constraint between source and target
+          if (clickedBodyId !== constraintSourceId) {
+            const constraintType = activeTool as ConstraintType;
+            addConstraint(constraintType, constraintSourceId, clickedBodyId);
+          }
+          // Reset source regardless
+          setConstraintSourceId(null);
+        }
       } else if (activeTool === 'delete') {
-        // Delete is handled via Matter.js mouse events
+        const clickedBodyId = findBodyAtPoint(x, y);
+        if (clickedBodyId) {
+          removeBody(clickedBodyId);
+          onBodyRemoved?.(clickedBodyId);
+          if (selectedBodyId === clickedBodyId) {
+            setSelectedBodyId(null);
+          }
+        }
       } else if (activeTool === 'select') {
         // Selection handled by Matter.js mouse constraint
       }
     },
-    [activeTool, addBody, setSelectedBodyId, setTrackedBodyId, onBodyAdded]
+    [activeTool, addBody, addConstraint, removeBody, findBodyAtPoint, constraintSourceId, setConstraintSourceId, setSelectedBodyId, setTrackedBodyId, selectedBodyId, onBodyAdded, onBodyRemoved]
   );
 
   // Keyboard shortcuts
@@ -155,10 +210,10 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
           style={{ width, height }}
         />
 
-        {/* Click capture layer — z-20, above canvas. Only captures clicks when placing bodies */}
+        {/* Click capture layer — z-20, above canvas. Only passes through in select mode */}
         <div
-          className={`absolute inset-0 z-20 ${activeTool === 'select' || activeTool === 'delete' ? 'pointer-events-none' : ''}`}
-          style={{ width, height, cursor: activeTool === 'select' ? 'default' : 'crosshair' }}
+          className={`absolute inset-0 z-20 ${activeTool === 'select' ? 'pointer-events-none' : ''}`}
+          style={{ width, height, cursor: activeTool === 'select' ? 'default' : activeTool === 'delete' ? 'not-allowed' : 'crosshair' }}
           onClick={handleCanvasClick}
         />
 
@@ -187,12 +242,22 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
         </div>
 
         {/* Active tool indicator */}
-        <div className="absolute top-3 right-3 z-30">
+        <div className="absolute top-3 right-3 z-30 flex flex-col items-end gap-2">
           <div className="glass-card px-3 py-1.5">
             <span className="text-[10px] text-lab-accent font-semibold uppercase tracking-wider">
               {activeTool}
             </span>
           </div>
+          {/* Constraint creation hint */}
+          {(['spring', 'rope', 'pivot', 'motor'] as const).includes(activeTool as any) && (
+            <div className="glass-card px-3 py-1.5">
+              <span className="text-[10px] text-lab-warning font-medium">
+                {constraintSourceId
+                  ? '⬤ Click target body'
+                  : '○ Click source body'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Simulation controls */}
