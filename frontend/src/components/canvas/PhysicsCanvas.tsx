@@ -42,7 +42,7 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
     height,
     gravity: { x: 0, y: 1 },
     wireframes: false,
-    background: '#0a0a0f',
+    background: 'transparent',
   });
 
   const {
@@ -54,6 +54,7 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
     trackedBodyId,
     setTrackedBodyId,
     isPlaying,
+    isConnected,
     roomUsers,
   } = useLabStore();
 
@@ -143,27 +144,33 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
   return (
     <div className="flex-1 flex relative overflow-hidden">
       {/* Canvas Area */}
-      <div className="flex-1 relative">
-        {/* Grid background */}
-        <div className="absolute inset-0 grid-bg opacity-60 pointer-events-none" />
+      <div className="flex-1 relative bg-lab-bg">
+        {/* Grid background — z-0 */}
+        <div className="absolute inset-0 grid-bg opacity-60 pointer-events-none z-0" />
 
-        {/* Matter.js canvas container */}
+        {/* Matter.js canvas container — z-10 */}
         <div
           ref={containerRef}
-          className="absolute inset-0 cursor-crosshair"
-          onClick={handleCanvasClick}
+          className="absolute inset-0 z-10"
           style={{ width, height }}
+        />
+
+        {/* Click capture layer — z-20, above canvas. Only captures clicks when placing bodies */}
+        <div
+          className={`absolute inset-0 z-20 ${activeTool === 'select' || activeTool === 'delete' ? 'pointer-events-none' : ''}`}
+          style={{ width, height, cursor: activeTool === 'select' ? 'default' : 'crosshair' }}
+          onClick={handleCanvasClick}
         />
 
         {/* Multiplayer cursor overlay */}
         <CursorOverlay users={roomUsers} />
 
         {/* Connection & room info bar */}
-        <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
+        <div className="absolute top-3 left-3 z-30 flex items-center gap-2">
           <div className="glass-card px-3 py-1.5 flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${useLabStore.getState().isConnected ? 'bg-lab-success' : 'bg-lab-danger'} animate-pulse`} />
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-lab-success' : 'bg-lab-danger'} animate-pulse`} />
             <span className="text-[10px] text-lab-muted font-medium uppercase tracking-wider">
-              {useLabStore.getState().isConnected ? 'Connected' : 'Offline'}
+              {isConnected ? 'Connected' : 'Offline'}
             </span>
           </div>
           {roomUsers.length > 0 && (
@@ -180,7 +187,7 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
         </div>
 
         {/* Active tool indicator */}
-        <div className="absolute top-3 right-3 z-20">
+        <div className="absolute top-3 right-3 z-30">
           <div className="glass-card px-3 py-1.5">
             <span className="text-[10px] text-lab-accent font-semibold uppercase tracking-wider">
               {activeTool}

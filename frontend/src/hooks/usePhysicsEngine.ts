@@ -41,12 +41,25 @@ export function usePhysicsEngine(
     const engine = new PhysicsEngine(container, options);
     engineRef.current = engine;
 
+    // Ensure the Matter.js canvas fills the container
+    const canvas = engine.getCanvas();
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+
     return () => {
       engine.destroy();
       engineRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerRef]);
+
+  // Resize engine when dimensions change
+  useEffect(() => {
+    if (engineRef.current && options.width > 0 && options.height > 0) {
+      engineRef.current.resize(options.width, options.height);
+    }
+  }, [options.width, options.height]);
 
   const addBody = useCallback(
     (type: BodyType, position: Vec2, opts?: any) => {
