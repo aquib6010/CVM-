@@ -64,21 +64,39 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
 
   const { frames, latestFrame } = useAnalytics(engineRef, trackedBodyId);
 
-  // Find which body was clicked (hit-test against all engine bodies)
+  // Find which body was clicked using Matter.Query.point
   const findBodyAtPoint = useCallback(
     (x: number, y: number): string | null => {
       const engine = engineRef.current;
       if (!engine) return null;
-      const allBodies = engine.getAllBodies();
-      for (const [id, body] of allBodies) {
-        if (Matter.Bounds.contains(body.bounds, { x, y })) {
-          // More precise check with vertices
-          if (Matter.Vertices.contains(body.vertices, { x, y })) {
+
+      // Use Matter.Query.point for proper collision detection
+      const allMatterBodies = Matter.Composite.allBodies(engine.getEngine().world);
+      const hitBodies = Matter.Query.point(allMatterBodies, { x, y });
+
+      // Find a user-created body (not walls/ground)
+      const userBodies = engine.getAllBodies();
+      for (const hit of hitBodies) {
+        for (const [id, userBody] of userBodies) {
+          if (userBody.id === hit.id) {
             return id;
           }
         }
       }
-      return null;
+
+      // Fallback: distance-based check for small bodies (within 25px)
+      let closestId: string | null = null;
+      let closestDist = 25;
+      for (const [id, body] of userBodies) {
+        const dx = body.position.x - x;
+        const dy = body.position.y - y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestId = id;
+        }
+      }
+      return closestId;
     },
     [engineRef]
   );
@@ -89,15 +107,19 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
       const container = containerRef.current;
       if (!container) return;
 
+      // Use the container's rect for consistent coordinates
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+
+      console.log(`[Canvas] Click at (${Math.round(x)}, ${Math.round(y)}) tool=${activeTool}`);
 
       const bodyTools: BodyType[] = ['rectangle', 'circle', 'trapezoid'];
       const constraintTools: ConstraintType[] = ['spring', 'rope', 'pivot', 'motor'];
 
       if (bodyTools.includes(activeTool as BodyType)) {
         const id = addBody(activeTool as BodyType, { x, y });
+        console.log(`[Canvas] Body created: ${id} type=${activeTool}`);
         if (id) {
           setSelectedBodyId(id);
           setTrackedBodyId(id);
@@ -106,11 +128,12 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
       } else if (constraintTools.includes(activeTool as ConstraintType)) {
         // Two-click flow: first click = source body, second click = target body
         const clickedBodyId = findBodyAtPoint(x, y);
+        console.log(`[Canvas] Constraint click — found body: ${clickedBodyId}, source: ${constraintSourceId}`);
 
         if (!clickedBodyId) {
-          // Clicked empty space — if we had a source, cancel it
           if (constraintSourceId) {
             setConstraintSourceId(null);
+            console.log('[Canvas] Constraint cancelled — clicked empty space');
           }
           return;
         }
@@ -119,13 +142,14 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
           // First click — set source body
           setConstraintSourceId(clickedBodyId);
           setSelectedBodyId(clickedBodyId);
+          console.log(`[Canvas] Constraint source set: ${clickedBodyId}`);
         } else {
           // Second click — create constraint between source and target
           if (clickedBodyId !== constraintSourceId) {
             const constraintType = activeTool as ConstraintType;
-            addConstraint(constraintType, constraintSourceId, clickedBodyId);
+            const cid = addConstraint(constraintType, constraintSourceId, clickedBodyId);
+            console.log(`[Canvas] Constraint created: ${cid} (${constraintType}) ${constraintSourceId} → ${clickedBodyId}`);
           }
-          // Reset source regardless
           setConstraintSourceId(null);
         }
       } else if (activeTool === 'delete') {
@@ -137,8 +161,6 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
             setSelectedBodyId(null);
           }
         }
-      } else if (activeTool === 'select') {
-        // Selection handled by Matter.js mouse constraint
       }
     },
     [activeTool, addBody, addConstraint, removeBody, findBodyAtPoint, constraintSourceId, setConstraintSourceId, setSelectedBodyId, setTrackedBodyId, selectedBodyId, onBodyAdded, onBodyRemoved]

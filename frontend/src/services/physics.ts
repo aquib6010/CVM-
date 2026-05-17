@@ -525,6 +525,10 @@ export class PhysicsEngine {
     return this.canvas;
   }
 
+  getEngine(): Matter.Engine {
+    return this.engine;
+  }
+
   // ─── Cleanup ───────────────────────────────────────────────────
   destroy(): void {
     this.pause();
