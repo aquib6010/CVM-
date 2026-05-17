@@ -350,27 +350,6 @@ export class PhysicsEngine {
     this.runner.delta = delta;
   }
 
-  // ─── Body Property Updates ─────────────────────────────────────
-  setBodyPosition(id: string, position: Vec2): void {
-    const body = this.bodies.get(id);
-    if (body) Matter.Body.setPosition(body, position);
-  }
-
-  setBodyVelocity(id: string, velocity: Vec2): void {
-    const body = this.bodies.get(id);
-    if (body) Matter.Body.setVelocity(body, velocity);
-  }
-
-  setBodyAngle(id: string, angle: number): void {
-    const body = this.bodies.get(id);
-    if (body) Matter.Body.setAngle(body, angle);
-  }
-
-  setBodyStatic(id: string, isStatic: boolean): void {
-    const body = this.bodies.get(id);
-    if (body) Matter.Body.setStatic(body, isStatic);
-  }
-
   // ─── Serialization ────────────────────────────────────────────
   serializeWorld(): WorldState {
     const bodies: SerializedBody[] = [];
@@ -527,6 +506,69 @@ export class PhysicsEngine {
 
   getEngine(): Matter.Engine {
     return this.engine;
+  }
+
+  // ─── Body Property Setters ────────────────────────────────────
+  setBodyVelocity(id: string, velocity: Vec2): void {
+    const body = this.bodies.get(id);
+    if (body) {
+      Matter.Body.setVelocity(body, velocity);
+    }
+  }
+
+  setBodyMass(id: string, mass: number): void {
+    const body = this.bodies.get(id);
+    if (body) {
+      Matter.Body.setMass(body, mass);
+    }
+  }
+
+  setBodyFriction(id: string, friction: number): void {
+    const body = this.bodies.get(id);
+    if (body) {
+      body.friction = friction;
+    }
+  }
+
+  setBodyRestitution(id: string, restitution: number): void {
+    const body = this.bodies.get(id);
+    if (body) {
+      body.restitution = restitution;
+    }
+  }
+
+  setBodyAngle(id: string, angle: number): void {
+    const body = this.bodies.get(id);
+    if (body) {
+      Matter.Body.setAngle(body, angle);
+    }
+  }
+
+  setBodyStatic(id: string, isStatic: boolean): void {
+    const body = this.bodies.get(id);
+    if (body) {
+      Matter.Body.setStatic(body, isStatic);
+      // Update render appearance for static bodies
+      if (body.render) {
+        body.render.opacity = isStatic ? 0.7 : 1;
+        body.render.lineWidth = isStatic ? 2 : 0;
+        body.render.strokeStyle = isStatic ? '#ffeaa7' : '';
+      }
+    }
+  }
+
+  setBodyPosition(id: string, position: Vec2): void {
+    const body = this.bodies.get(id);
+    if (body) {
+      Matter.Body.setPosition(body, position);
+    }
+  }
+
+  applyForce(id: string, force: Vec2): void {
+    const body = this.bodies.get(id);
+    if (body) {
+      Matter.Body.applyForce(body, body.position, force);
+    }
   }
 
   // ─── Cleanup ───────────────────────────────────────────────────

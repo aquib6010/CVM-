@@ -9,6 +9,7 @@ import { usePhysicsEngine } from '@/hooks/usePhysicsEngine';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useLabStore } from '@/stores/useLabStore';
 import CanvasControls from './CanvasControls';
+import BodyPropertyEditor from './BodyPropertyEditor';
 import AnalyticsPanel from '@/components/analytics/AnalyticsPanel';
 import CursorOverlay from './CursorOverlay';
 import type { BodyType, ConstraintType } from '@shared/types';
@@ -281,6 +282,9 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
             </div>
           )}
         </div>
+
+        {/* Body property editor (velocity, mass, friction, etc.) */}
+        <BodyPropertyEditor engineRef={engineRef} />
 
         {/* Simulation controls */}
         <CanvasControls
