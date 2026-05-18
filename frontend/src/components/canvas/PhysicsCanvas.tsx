@@ -2,12 +2,14 @@
  * PhysicsCanvas — Main canvas component integrating Matter.js engine.
  * Handles click-to-add bodies based on active tool, mouse tracking,
  * and renders the cursor overlay for multiplayer.
+ * Includes undo/redo support via command pattern.
  */
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import Matter from 'matter-js';
 import { usePhysicsEngine } from '@/hooks/usePhysicsEngine';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useLabStore } from '@/stores/useLabStore';
+import { useUndoRedo } from '@/hooks/useUndoRedo';
 import CanvasControls from './CanvasControls';
 import BodyPropertyEditor from './BodyPropertyEditor';
 import AnalyticsPanel from '@/components/analytics/AnalyticsPanel';
@@ -19,6 +21,7 @@ interface PhysicsCanvasProps {
   height: number;
   onBodyAdded?: (id: string, type: BodyType, position: { x: number; y: number }) => void;
   onBodyRemoved?: (id: string) => void;
+  onSerializeWorld?: (state: any) => void;
 }
 
 const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
@@ -26,8 +29,11 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
   height,
   onBodyAdded,
   onBodyRemoved,
+  onSerializeWorld,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [undoRedoState, setUndoRedoState] = useState({ canUndo: false, canRedo: false });
+  
   const {
     engineRef,
     addBody,
@@ -48,6 +54,13 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
     wireframes: false,
     background: 'transparent',
   });
+
+  const { pushAction, undo, redo, canUndo, canRedo, clear } = useUndoRedo();
+
+  // Update undo/redo UI state
+  useEffect(() => {
+    setUndoRedoState({ canUndo, canRedo });
+  }, [canUndo, canRedo]);
 
   const {
     activeTool,
@@ -103,7 +116,7 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
     [engineRef]
   );
 
-  // Handle canvas click to add bodies or create constraints
+  // Handle canvas click to add bodies or create constraints with undo/redo
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
       const container = containerRef.current;
@@ -122,13 +135,29 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
       const constraintTools: ConstraintType[] = ['spring', 'rope', 'pivot', 'motor'];
 
       if (bodyTools.includes(activeTool as BodyType)) {
-        const id = addBody(activeTool as BodyType, { x, y });
-        console.log(`[Canvas] Body created: ${id} type=${activeTool}`);
-        if (id) {
-          setSelectedBodyId(id);
-          setTrackedBodyId(id);
-          onBodyAdded?.(id, activeTool as BodyType, { x, y });
-        }
+        // Add body with undo support
+        let addedId: string | null = null;
+        pushAction({
+          type: 'addBody',
+          description: `Add ${activeTool}`,
+          execute: () => {
+            addedId = addBody(activeTool as BodyType, { x, y });
+            console.log(`[Canvas] Body created: ${addedId} type=${activeTool}`);
+            if (addedId) {
+              setSelectedBodyId(addedId);
+              setTrackedBodyId(addedId);
+              onBodyAdded?.(addedId, activeTool as BodyType, { x, y });
+            }
+          },
+          undo: () => {
+            if (addedId) {
+              removeBody(addedId);
+              onBodyRemoved?.(addedId);
+              setSelectedBodyId(null);
+              console.log(`[Canvas] Body removed (undo): ${addedId}`);
+            }
+          },
+        });
       } else if (constraintTools.includes(activeTool as ConstraintType)) {
         // Two-click flow: first click = source body, second click = target body
         const clickedBodyId = findBodyAtPoint(x, y);
@@ -151,19 +180,61 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
           // Second click — create constraint between source and target
           if (clickedBodyId !== constraintSourceId) {
             const constraintType = activeTool as ConstraintType;
-            const cid = addConstraint(constraintType, constraintSourceId, clickedBodyId);
-            console.log(`[Canvas] Constraint created: ${cid} (${constraintType}) ${constraintSourceId} → ${clickedBodyId}`);
+            let addedConstraintId: string | null = null;
+
+            pushAction({
+              type: 'addConstraint',
+              description: `Add ${constraintType} constraint`,
+              execute: () => {
+                addedConstraintId = addConstraint(constraintType, constraintSourceId, clickedBodyId);
+                console.log(`[Canvas] Constraint created: ${addedConstraintId} (${constraintType}) ${constraintSourceId} → ${clickedBodyId}`);
+              },
+              undo: () => {
+                // TODO: Implement constraint removal when physics engine supports it
+                console.log(`[Canvas] Constraint removal not yet implemented: ${addedConstraintId}`);
+              },
+            });
           }
           setConstraintSourceId(null);
         }
       } else if (activeTool === 'delete') {
         const clickedBodyId = findBodyAtPoint(x, y);
         if (clickedBodyId) {
-          removeBody(clickedBodyId);
-          onBodyRemoved?.(clickedBodyId);
-          if (selectedBodyId === clickedBodyId) {
-            setSelectedBodyId(null);
-          }
+          // Capture body state before removal for undo
+          const engine = engineRef.current;
+          if (!engine) return;
+
+          const userBodies = engine.getAllBodies();
+          const bodyToDelete = userBodies.get(clickedBodyId);
+          const deletedBodyState = bodyToDelete
+            ? {
+                id: clickedBodyId,
+                type: bodyToDelete.type,
+                position: bodyToDelete.position,
+                angle: bodyToDelete.angle,
+                // ... store other properties as needed
+              }
+            : null;
+
+          pushAction({
+            type: 'removeBody',
+            description: `Delete body`,
+            execute: () => {
+              removeBody(clickedBodyId);
+              onBodyRemoved?.(clickedBodyId);
+              if (selectedBodyId === clickedBodyId) {
+                setSelectedBodyId(null);
+              }
+              console.log(`[Canvas] Body deleted: ${clickedBodyId}`);
+            },
+            undo: () => {
+              // Re-add body with same properties
+              if (deletedBodyState) {
+                addBody(deletedBodyState.type as BodyType, deletedBodyState.position);
+                console.log(`[Canvas] Body restored (undo): ${clickedBodyId}`);
+              }
+            },
+          });
         }
       } else if (activeTool === 'select') {
         // Click to select a body and load its properties
@@ -176,13 +247,46 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
         }
       }
     },
-    [activeTool, addBody, addConstraint, removeBody, findBodyAtPoint, constraintSourceId, setConstraintSourceId, setSelectedBodyId, setTrackedBodyId, selectedBodyId, onBodyAdded, onBodyRemoved]
+    [
+      activeTool,
+      addBody,
+      addConstraint,
+      removeBody,
+      findBodyAtPoint,
+      constraintSourceId,
+      setConstraintSourceId,
+      setSelectedBodyId,
+      setTrackedBodyId,
+      selectedBodyId,
+      onBodyAdded,
+      onBodyRemoved,
+      pushAction,
+      engineRef,
+    ]
   );
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts including undo/redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      // Undo/Redo shortcuts
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (canUndo) {
+          undo();
+          console.log('[Canvas] Undo executed');
+        }
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+        e.preventDefault();
+        if (canRedo) {
+          redo();
+          console.log('[Canvas] Redo executed');
+        }
+        return;
+      }
 
       switch (e.key) {
         case ' ':
@@ -198,6 +302,7 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
         case 'r':
         case 'R':
           reset();
+          clear();
           useLabStore.getState().setIsPlaying(false);
           break;
         case 'Delete':
@@ -229,7 +334,17 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, selectedBodyId, play, pause, reset, removeBody, setActiveTool, setSelectedBodyId, onBodyRemoved]);
+  }, [isPlaying, selectedBodyId, play, pause, reset, removeBody, setActiveTool, setSelectedBodyId, onBodyRemoved, undo, redo, canUndo, canRedo, clear]);
+
+  // Periodically serialize world state for save
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const state = serializeWorld();
+      onSerializeWorld?.(state);
+    }, 2000); // Serialize every 2 seconds
+
+    return () => clearInterval(interval);
+  }, [serializeWorld, onSerializeWorld]);
 
   return (
     <div className="flex-1 flex relative overflow-hidden">
@@ -293,6 +408,26 @@ const PhysicsCanvas: React.FC<PhysicsCanvasProps> = ({
               </span>
             </div>
           )}
+          {/* Undo/Redo buttons */}
+          <div className="glass-card flex gap-1 p-1">
+            <button
+              onClick={undo}
+              disabled={!undoRedoState.canUndo}
+              className="px-2 py-1 text-[10px] font-medium text-lab-text hover:bg-lab-bg disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+              title="Undo (Ctrl+Z)"
+            >
+              ↶ Undo
+            </button>
+            <div className="w-px bg-lab-border" />
+            <button
+              onClick={redo}
+              disabled={!undoRedoState.canRedo}
+              className="px-2 py-1 text-[10px] font-medium text-lab-text hover:bg-lab-bg disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+              title="Redo (Ctrl+Y)"
+            >
+              Redo ↷
+            </button>
+          </div>
         </div>
 
         {/* Body property editor (velocity, mass, friction, etc.) */}

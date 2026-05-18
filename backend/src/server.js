@@ -21,12 +21,12 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({
   origin: (origin, callback) => {
     const allowed = [
-      'http://localhost:5173',
-      'http://localhost:3000',
+      /^http:\/\/localhost:\d+$/,   // Any localhost port (dev)
       /\.vercel\.app$/,
+      /\.railway\.app$/,
     ];
     // Allow requests with no origin (mobile apps, curl, etc.)
-    if (!origin || allowed.some(o => typeof o === 'string' ? o === origin : o.test(origin))) {
+    if (!origin || allowed.some(o => o.test(origin))) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));

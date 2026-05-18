@@ -51,6 +51,10 @@ interface LabState {
   // Constraint creation (two-click flow)
   constraintSourceId: string | null;
   setConstraintSourceId: (id: string | null) => void;
+
+  // Experiment
+  initialWorldState: any | null;
+  setInitialWorldState: (state: any) => void;
 }
 
 export const useLabStore = create<LabState>((set) => ({
@@ -95,4 +99,7 @@ export const useLabStore = create<LabState>((set) => ({
 
   constraintSourceId: null,
   setConstraintSourceId: (id) => set({ constraintSourceId: id }),
+
+  initialWorldState: null,
+  setInitialWorldState: (state) => set({ initialWorldState: state }),
 }));

@@ -9,6 +9,7 @@ frontend/build/
 
 # Environment
 backend/.env
+frontend/.env
 .env
 .env.local
 .env.production

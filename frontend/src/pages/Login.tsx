@@ -1,10 +1,13 @@
 /**
- * Login Page — Simple email/password auth form.
+ * Login Page — Email/password auth + Google Sign-In.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authAPI } from '@/services/api';
 import { useAuthStore } from '@/stores/useAuthStore';
+
+// Google Client ID from env
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 const Login: React.FC = () => {
   const [isRegister, setIsRegister] = useState(false);
@@ -13,8 +16,95 @@ const Login: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const navigate = useNavigate();
   const { setAuth } = useAuthStore();
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const googleInitialized = useRef(false);
+
+  // Handle Google credential response
+  const handleGoogleResponse = useCallback(async (response: any) => {
+    if (!response.credential) {
+      setError('Google sign-in failed — no credential received.');
+      return;
+    }
+
+    setGoogleLoading(true);
+    setError('');
+
+    try {
+      const res = await authAPI.google({ credential: response.credential });
+      setAuth(res.data.user, res.data.token);
+      navigate('/lab');
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Google sign-in failed. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  }, [navigate, setAuth]);
+
+  // Load and initialize Google Identity Services
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || googleInitialized.current) return;
+
+    const initGoogle = () => {
+      if (!(window as any).google?.accounts?.id) return;
+
+      (window as any).google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleResponse,
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+
+      if (googleBtnRef.current) {
+        (window as any).google.accounts.id.renderButton(googleBtnRef.current, {
+          type: 'standard',
+          theme: 'filled_black',
+          size: 'large',
+          text: 'continue_with',
+          shape: 'rectangular',
+          width: 380,
+          logo_alignment: 'left',
+        });
+      }
+
+      googleInitialized.current = true;
+    };
+
+    // Check if script already loaded
+    if ((window as any).google?.accounts?.id) {
+      initGoogle();
+      return;
+    }
+
+    // Load the GSI script
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = initGoogle;
+    document.head.appendChild(script);
+
+    return () => {
+      // Cleanup: don't remove script as it may be needed
+    };
+  }, [handleGoogleResponse]);
+
+  // Re-render Google button when switching between login/register
+  useEffect(() => {
+    if (googleInitialized.current && googleBtnRef.current && (window as any).google?.accounts?.id) {
+      (window as any).google.accounts.id.renderButton(googleBtnRef.current, {
+        type: 'standard',
+        theme: 'filled_black',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'rectangular',
+        width: 380,
+        logo_alignment: 'left',
+      });
+    }
+  }, [isRegister]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,6 +158,33 @@ const Login: React.FC = () => {
           {error && (
             <div className="mb-4 px-4 py-2.5 bg-lab-danger/10 border border-lab-danger/20 rounded-lg text-sm text-lab-danger">
               {error}
+            </div>
+          )}
+
+          {/* Google Sign-In */}
+          {GOOGLE_CLIENT_ID && (
+            <div className="mb-5">
+              <div
+                ref={googleBtnRef}
+                className="flex justify-center"
+                style={{ minHeight: '44px' }}
+              />
+              {googleLoading && (
+                <div className="flex items-center justify-center gap-2 mt-2 text-sm text-lab-muted">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                  Signing in with Google...
+                </div>
+              )}
+
+              {/* Divider */}
+              <div className="flex items-center gap-3 mt-5">
+                <div className="flex-1 h-px bg-lab-border" />
+                <span className="text-xs text-lab-dim font-medium uppercase tracking-wider">or</span>
+                <div className="flex-1 h-px bg-lab-border" />
+              </div>
             </div>
           )}
 

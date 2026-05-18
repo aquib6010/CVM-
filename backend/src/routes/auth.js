@@ -1,12 +1,16 @@
 /**
- * Auth Routes — Register & Login with JWT.
+ * Auth Routes — Register & Login with JWT + Google OAuth.
  */
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
+
+// Google OAuth client
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Generate JWT
 const generateToken = (userId) => {
@@ -90,6 +94,69 @@ router.post('/login', async (req, res) => {
 // ─── GET /api/auth/me ───────────────────────────────────────────
 router.get('/me', authMiddleware, (req, res) => {
   res.json({ user: req.user });
+});
+
+// ─── POST /api/auth/google ──────────────────────────────────────
+router.post('/google', async (req, res) => {
+  try {
+    const { credential } = req.body;
+
+    if (!credential) {
+      return res.status(400).json({ message: 'Google credential is required.' });
+    }
+
+    // Verify the Google ID token
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const { sub: googleId, email, name, picture } = payload;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email not provided by Google.' });
+    }
+
+    // Find existing user by googleId or email
+    let user = await User.findOne({
+      $or: [{ googleId }, { email }],
+    });
+
+    if (user) {
+      // Link Google account if user exists with email but hasn't linked Google yet
+      if (!user.googleId) {
+        user.googleId = googleId;
+        user.provider = 'google';
+        if (picture && !user.avatar) user.avatar = picture;
+        await user.save();
+      }
+    } else {
+      // Create new user from Google profile
+      user = new User({
+        email,
+        displayName: name || email.split('@')[0],
+        avatar: picture || '',
+        provider: 'google',
+        googleId,
+      });
+      await user.save();
+    }
+
+    const token = generateToken(user._id);
+
+    res.json({
+      message: 'Google sign-in successful.',
+      user: user.toJSON(),
+      token,
+    });
+  } catch (error) {
+    console.error('[Auth] Google auth error:', error);
+    if (error.message?.includes('Token used too late') || error.message?.includes('Invalid token')) {
+      return res.status(401).json({ message: 'Invalid or expired Google token.' });
+    }
+    res.status(500).json({ message: 'Server error during Google authentication.' });
+  }
 });
 
 module.exports = router;
