@@ -8,7 +8,18 @@ const { registerLabHandlers } = require('./labHandlers');
 function setupSocket(httpServer) {
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CLIENT_URL || 'http://localhost:5173',
+      origin: (origin, callback) => {
+        const allowed = [
+          'http://localhost:5173',
+          'http://localhost:3000',
+          /\.vercel\.app$/,
+        ];
+        if (!origin || allowed.some(o => typeof o === 'string' ? o === origin : o.test(origin))) {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
       methods: ['GET', 'POST'],
       credentials: true,
     },
