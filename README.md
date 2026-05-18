@@ -77,8 +77,8 @@ CVM++/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/aquib6010/CVM-.git
-cd CVM-
+git clone https://github.com/aquib6010/VirtualLab.git
+cd VirtualLab
 ```
 
 ### 2. Setup Backend
