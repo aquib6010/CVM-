@@ -24,6 +24,7 @@ app.use(cors({
       /^http:\/\/localhost:\d+$/,   // Any localhost port (dev)
       /\.vercel\.app$/,
       /\.railway\.app$/,
+      /\.onrender\.com$/,
     ];
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin || allowed.some(o => o.test(origin))) {

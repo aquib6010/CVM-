@@ -13,6 +13,7 @@ function setupSocket(httpServer) {
           /^http:\/\/localhost:\d+$/,   // Any localhost port (dev)
           /\.vercel\.app$/,
           /\.railway\.app$/,
+          /\.onrender\.com$/,
         ];
         if (!origin || allowed.some(o => o.test(origin))) {
           callback(null, true);
